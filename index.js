@@ -91,6 +91,40 @@ class NFLGameData {
   }
 
   /**
+   * Fetches the season data for the specified {@link seasonType}.
+   *
+   * @param {String} seasonType The season type we wish to retreive
+   *  ('pre', 'reg', 'post').
+   * @returns {Object}
+   * @memberof NFLGameData
+   */
+  async getSeasonObject(seasonType) {
+    const seasonData = await this.getSeasonData();
+    const seasonObj = seasonData.find(
+      season => season
+        && season.seasonType
+        && season.seasonType.abbreviation === seasonType.toLowerCase(),
+    );
+    return seasonObj || {};
+  }
+
+  /**
+   * Fetches the array of play data for the specified {@link gameId}
+   *
+   * @static
+   * @param {String} gameId The string representing the game ID. Looks like
+   *  '512341234'
+   * @returns {Array} The array of play objects
+   * @memberof NFLGameData
+   */
+  static async getPlays(gameId) {
+    const res = await phin(NFLGameData.getPlayDataUrl(gameId));
+    const body = res.body.toString('utf8');
+    const plays = JSON.parse(body.match(NFLGameData.playDataRegex()));
+    return plays;
+  }
+
+  /**
    * Gets the events object from the ESPN model for the specified
    * week number (game) and season type (pre, reg, post).
    *
@@ -105,10 +139,7 @@ class NFLGameData {
     if (typeof num === 'undefined' || typeof seasonType === 'undefined') {
       throw new Error('Missing week number or season type (pre, reg, post).');
     }
-    const seasonTypes = await this.getSeasonData();
-    const seasonObj = seasonTypes.find(
-      season => season.seasonType.abbreviation === seasonType.toLowerCase(),
-    );
+    const seasonObj = await this.getSeasonObject(seasonType);
     // Post refers to events recorded after the game has ended (I think)
     let obj = (
       (seasonObj && seasonObj.events && seasonObj.events.post)
@@ -133,21 +164,74 @@ class NFLGameData {
    *  the associated plays data for that game.
    * @memberof NFLGameData
    */
-  async getGameData(num, seasonType) {
+  async getGame(num, seasonType) {
     const gameDetails = await this.getGameDetails(num, seasonType);
     if (gameDetails && !gameDetails.gameId) {
-      throw new Error(`There was no game ID associated with 
+      throw new Error(`
+        gameDetails: ${JSON.stringify(gameDetails)} 
         TEAM: ${this.team}
         SEASON: ${this.season}
         SEASON TYPE: ${seasonType}
         WEEK: ${num}`);
     }
-    const res = await phin(NFLGameData.getPlayDataUrl(gameDetails.gameId));
-    const body = res.body.toString('utf8');
-    const plays = JSON.parse(body.match(NFLGameData.playDataRegex()));
+    const plays = await NFLGameData.getPlays(gameDetails.gameId);
     return {
       plays,
       gameDetails,
+    };
+  }
+
+  /**
+   * Fetch the game details and play-by-play data from ESPN for every
+   * game of a {@link seasonType} for the set {@link this.team} and
+   * {@link this.season}.
+   *
+   * @param {String} seasonType
+   * @returns {Object[]}
+   * @memberof NFLGameData
+   */
+  async getEveryGame(seasonType) {
+    const seasonObj = await this.getSeasonObject(seasonType);
+    const games = [];
+    const playPromises = [];
+    let events = seasonObj && seasonObj.events && seasonObj.events.post;
+    events = events || [];
+    events.forEach((event) => {
+      const gameDetails = event;
+      gameDetails.gameId = ((event && event.time && event.time.link) || '')
+        .split('/')
+        .pop();
+      playPromises.push(
+        new Promise((resolve) => {
+          resolve(NFLGameData.getPlays(gameDetails.gameId));
+        }).then(plays => games.push({ gameDetails, plays })),
+      );
+    });
+    await Promise.all(playPromises).then(() => {
+      games.sort((a, b) => {
+        const aWeek = a.gameDetails.week.number || a.gameDetails.week.display;
+        const bWeek = b.gameDetails.week.number || b.gameDetails.week.display;
+        return aWeek - bWeek;
+      });
+    });
+    return games;
+  }
+
+  /**
+   * Fetch the game details and play-by-play data from ESPN for every
+   * game of every season type.
+   *
+   * @returns {Object}
+   * @memberof NFLGameData
+   */
+  async getAllGames() {
+    const preseason = await this.getEveryGame('pre');
+    const regularSeason = await this.getEveryGame('reg');
+    const postSeason = await this.getEveryGame('post');
+    return {
+      preseason,
+      regularSeason,
+      postSeason,
     };
   }
 

@@ -9,22 +9,59 @@ Scrapes NFL game data from ESPN for the given team (abbreviation), season (year)
 }
 ```
 
-## Disclaimer
+**Disclaimer**
 
 As with all scrapers, this scraper is subject to break with any change in the response model sent back from ESPN.
 
-### `client.js`
+There are some occasions where the play-by-play endpoint will return a one-off response that doesn't contain the model that the scraper's regex is expecting. So far I've only seen it with a single preseason game. I don't care enough to parse the raw HTML. Sorry! Fork this repo and enhance it if you'd like.
+
+## `Usage`
 
 ```javascript
 const NFLGameData = require("nfl-game-data");
 
 // Set team (Seattle Seahawks) and season year (2018).
-const nflGameData = new NFLGameData("sea", 2018);
+const nflGameData = new NFLGameData('sea', 2018);
 
-// Fetch game data for game 3 of the regular season.
-nflGameData.getGameData(3, "reg").then(response => {
-  const { plays, gameDetails } = response;
+/**
+ * Fetch game data for game 3 of the regular season.
+ *
+ * HTTP Request count:
+ *  1 (season data) + 1 game (for plays)
+ */
+nflGameData.getGame(3, 'reg').then((data) => {
+  const { plays, gameDetails } = data;
   // Do something...
+});
+
+// Change team to New England Patriots
+nflGameData.team = 'ne';
+// Change season to 2017
+nflGameData.season = 2017;
+
+/**
+ * Fetch game data for every game of the Regular Season
+ *
+ * HTTP Request count:
+ *   1 (season data) + N games (plays for each game)
+ */
+nflGameData.getEveryGame('reg').then((regSeasonGames) => {
+  regSeasonGames.forEach(({ plays, gameDetails }) => {
+    // Do something...
+  });
+});
+
+/**
+ * Fetch game data for every game of every season type
+ *
+ * HTTP Request count:
+ *  1 (season data) + N games (plays for each game) for each season
+ */
+nflGameData.getAllGames().then((allGames) => {
+  const { preseason, regularSeason, postSeason } = allGames;
+  regularSeason.forEach(({ plays, gameDetails }) => {
+    // Do something...
+  });
 });
 ```
 
